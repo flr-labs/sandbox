@@ -1,0 +1,15 @@
+{
+  "name": "parkpilot-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 43123 --strictPort",
+    "test": "node --test lib/*.test.mjs"
+  },
+  "devDependencies": {
+    "vite": "^6.3.5"
+  },
+  "dependencies": {
+    "leaflet": "^1.9.4"
+  }
+}

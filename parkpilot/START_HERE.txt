@@ -1,0 +1,25 @@
+ParkPilot local copy
+
+This folder is the reviewable planner. It does not include API keys.
+
+On your Mac, after you download parkpilot_local_copy.zip:
+
+1. Move the zip to /Users/felix.rivera/Desktop/marketing
+2. Run:
+
+   cd /Users/felix.rivera/Desktop/marketing
+   unzip parkpilot_local_copy.zip
+   cd parkpilot
+   ls
+
+   You should see .env.example, README.md, docs, and example.
+
+3. Then:
+
+   cp .env.example .env.local
+   cd example
+   npm install
+   npm run dev
+
+4. Open http://127.0.0.1:43123
+   Put your API keys in /Users/felix.rivera/Desktop/marketing/parkpilot/.env.local
