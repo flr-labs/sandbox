@@ -27,6 +27,20 @@ const env = Object.fromEntries(
     }),
 );
 
+const HOST_KEYS = [
+  "NPS_API_KEY",
+  "OPENAI_API_KEY",
+  "NWS_USER_AGENT",
+  "SERPAPI_API_KEY",
+  "UDOT_API_KEY",
+  "OPENROUTESERVICE_API_KEY",
+  "EIA_API_KEY",
+  "PARKPILOT_LODGING_FIXTURE",
+];
+for (const key of HOST_KEYS) {
+  if (process.env[key]) env[key] = process.env[key];
+}
+
 const cache = new Map();
 const SKY = {
   0: "Clear",
@@ -82,9 +96,13 @@ function readDisk(name) {
 }
 
 function writeDisk(name, value) {
-  const dir = fileURLToPath(new URL("../.cache/", import.meta.url));
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(new URL(`../.cache/${name}.json`, import.meta.url), JSON.stringify(value));
+  try {
+    const dir = fileURLToPath(new URL("../.cache/", import.meta.url));
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(new URL(`../.cache/${name}.json`, import.meta.url), JSON.stringify(value));
+  } catch {
+    // Hosted runtimes cannot always write next to the app. The in-memory cache still holds this response.
+  }
 }
 
 function rateLimit(retryAfter) {
