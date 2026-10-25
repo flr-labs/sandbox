@@ -10,8 +10,9 @@ export function selectedLevels(difficulty) {
 
 export function parkMatches(park, choices = {}, levels) {
   const query = String(choices.query || "").trim().toLowerCase();
-  if (query && !`${park.name} ${park.states}`.toLowerCase().includes(query)) return false;
-  if (choices.stateFilter && !String(park.states || "").split(",").includes(choices.stateFilter)) return false;
+  if (query && !String(park.name || "").toLowerCase().includes(query)) return false;
+  const states = String(park.states || "").split(",").map((code) => code.trim()).filter(Boolean);
+  if (choices.stateFilter && !states.includes(choices.stateFilter)) return false;
   const activities = choices.activityFilter || [];
   if (activities.length && !activities.every((name) => (park.activities || []).includes(name))) return false;
   const wanted = selectedLevels(choices.difficulty);

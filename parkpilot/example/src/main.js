@@ -875,6 +875,10 @@ function itineraryPaneHtml() {
       <h2>Itinerary</h2>
       <button class="itinerary-dismiss" type="button" data-action="toggle-itinerary" aria-label="Hide itinerary"><span class="itinerary-arrow-mark" aria-hidden="true"></span></button>
     </div>
+    ${state.stateFilter ? `<article class="itinerary-item">
+      <p><strong>${esc(state.stateFilter)}</strong><span class="meta">Location</span></p>
+      <button class="itinerary-remove" type="button" data-action="remove-filter" data-kind="state" data-value="${esc(state.stateFilter)}">Remove</button>
+    </article>` : ""}
     ${stayOutlineHtml()}
     ${state.tripAirports.map((airport) => `<article class="itinerary-item">
       <p><strong>${esc(airport.name)} (${esc(airport.iata)})</strong><span class="meta">Airport${state.origin?.label === airport.label ? " · starting point" : ""}</span></p>
@@ -890,8 +894,8 @@ function itineraryPaneHtml() {
       <button class="itinerary-remove" type="button" data-action="remove" data-id="${esc(event.trail.id)}">Remove</button>
     </article>`;
       }).join("")}</section>`;
-    }).join("") : `<p class="meta">Approve a hike and it remains here.</p>`}
-    ${(stayName || state.tripAirports.length || trails.length) ? `<button class="itinerary-remove itinerary-clear" type="button" data-action="clear-itinerary">Remove all</button>` : ""}`;
+    }).join("") : (stayName || state.stateFilter || state.tripAirports.length) ? "" : `<p class="meta">Approve a hike and it remains here.</p>`}
+    ${itineraryCount() ? `<button class="itinerary-remove itinerary-clear" type="button" data-action="clear-itinerary">Remove all</button>` : ""}`;
 }
 
 function tripHtml() {
@@ -923,7 +927,7 @@ function tripHtml() {
       <div class="trip-grid">
         ${state.airport ? `<label>Landing time <input id="landingTime" type="time" value="${esc(state.landingTime)}" /></label>
           <label>Baggage and vehicle pickup, minutes <input id="bufferMin" type="number" min="0" max="240" value="${esc(state.bufferMin)}" /></label>` : `<label>Departure time <input id="departTime" type="time" value="${esc(state.departTime)}" /></label><div></div>`}
-        <label>First day <input id="startDate" type="date" value="${esc(state.startDate)}" /></label>
+        <label>First day <input id="routeStart" type="date" data-date="start" value="${esc(state.startDate)}" /></label>
         <label>Return deadline <input id="returnBy" type="time" value="${esc(state.returnBy)}" /></label>
         ${state.airport ? `<label>Later mornings start at <input id="departTime" type="time" value="${esc(state.departTime)}" /></label>` : ""}
       </div>
@@ -1032,14 +1036,22 @@ function suggestionHtml() {
     ${suggestion?.reason ? `<p class="meta">${esc(suggestion.reason)}</p>` : ""}
     ${days.length ? `<ol class="suggest-days">${days.map((day) => {
       const trails = day.trailIds.map((id) => byId.get(id)).filter(Boolean);
-      const names = trails.map((trail) => trail.name);
       const reasons = trails.map((trail) => selectionReason(trail));
       const empty = "No remaining listed hike was left for this day.";
-      return `<li><strong>${esc(readableDate(day.date))}</strong> ${names.length ? names.map((name) => esc(name)).join(", ") : "No hike placed."}${reasons.length ? reasons.map((reason) => `<span class="suggest-reason">${esc(reason)}</span>`).join("") : `<span class="suggest-reason">${esc(empty)}</span>`}${day.note ? `<span class="meta">${esc(day.note)}</span>` : ""}</li>`;
+      const names = trails.map((trail) => `<button type="button" class="suggest-link" data-action="show-listing" data-id="${esc(trail.id)}">${esc(trail.name)}</button>`).join(", ");
+      return `<li><strong>${esc(readableDate(day.date))}</strong> ${names || "No hike placed."}${reasons.length ? reasons.map((reason) => `<span class="suggest-reason">${esc(reason)}</span>`).join("") : `<span class="suggest-reason">${esc(empty)}</span>`}${day.note ? `<span class="meta">${esc(day.note)}</span>` : ""}</li>`;
     }).join("")}</ol>` : ""}
     ${suggestion ? `<p class="source">${suggestion.authored ? "Written from the listed hikes and these dates." : "Filled from the listed hikes. No model text was added."} ${esc(fresh(suggestion.retrievedAt))}</p>` : ""}
-    ${days.some((day) => day.trailIds.length) ? `<button class="btn" type="button" data-action="apply-suggestion">Add these hikes to the itinerary</button>` : ""}
+    ${days.some((day) => day.trailIds.length) ? `<div class="suggest-actions">
+      <button class="btn" type="button" data-action="apply-suggestion">Add these hikes to the itinerary</button>
+      ${suggestionApplied(days) ? `<button class="btn primary" type="button" data-action="stage" data-stage="plan">Continue to Itinerary</button>` : ""}
+    </div>` : ""}
   </div>`;
+}
+
+function suggestionApplied(days) {
+  const ids = days.flatMap((day) => day.trailIds || []);
+  return ids.length > 0 && ids.every((id) => state.selected.some((item) => item.id === id));
 }
 
 function leadLabel(value) {
@@ -1093,7 +1105,7 @@ function trailCard(trail) {
     trail.lat == null ? "NPS did not publish a trailhead coordinate." : `Trailhead ${trail.lat}, ${trail.lon}.`,
   ].filter(Boolean);
   const level = ["easy", "moderate", "strenuous", "mixed"].includes(trail.level) ? trail.level : "unknown";
-  return `<article class="trail${state.previewId === trail.id ? " is-open" : ""}" data-level="${level}">
+  return `<article class="trail${state.previewId === trail.id ? " is-open" : ""}" data-listing="${esc(trail.id)}" data-level="${level}">
     <figure class="trail-photo">
       <div class="trail-frame">${photo(trail.image, trail.imageAlt || trail.name)}</div>
       <figcaption class="trail-credit">${trail.imageCredit ? esc(trail.imageCredit) : "Photo credit not on this record"}</figcaption>
@@ -1181,7 +1193,10 @@ function settingsOutlineHtml() {
     ["Max drive to the park", `${state.maxStayMiles} miles`],
     ["Max daily driving", `${hours} ${hours === 1 ? "hour" : "hours"}`],
   ];
-  return `<section class="card settings-outline" aria-label="Trip settings"><h2>Settings</h2><dl>${items.map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join("")}</dl></section>`;
+  return `<details class="card settings-outline topline-settings" ${state.openDetails.details === false ? "" : "open"} data-keep="details" aria-label="Trip details">
+    <summary><h2 class="topline-label">Details</h2><span class="topline-summary">${esc(tripSummary())}</span></summary>
+    <dl>${items.map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join("")}</dl>
+  </details>`;
 }
 
 function planHtml() {
@@ -1198,7 +1213,14 @@ function planHtml() {
       ${placed.map(({ row, event }) => {
         const trail = event.trail;
         const level = levelName[trail.level] || "Not available";
-        return `<tr><td>${esc(readableDate(row.date))}</td><td><button type="button" data-action="focus" data-id="${esc(trail.id)}">${esc(trail.name)}</button></td><td>${esc(level)}${trail.levelEstimated ? " est." : ""}</td><td>${esc(blank(trail.miles, " mi", "Not stated"))}</td><td>${esc(trail.duration || (trail.minutes != null ? hoursLabel(trail.minutes) : "Not stated"))}</td><td>${esc(suggestedStart(row, event))}</td></tr>`;
+        return `<tr>
+        <td data-label="Date">${esc(readableDate(row.date))}</td>
+        <td data-label="Trail"><button type="button" data-action="focus" data-id="${esc(trail.id)}">${esc(trail.name)}</button></td>
+        <td data-label="Level">${esc(level)}${trail.levelEstimated ? " est." : ""}</td>
+        <td data-label="Distance">${esc(blank(trail.miles, " mi", "Not stated"))}</td>
+        <td data-label="Time">${esc(trail.duration || (trail.minutes != null ? hoursLabel(trail.minutes) : "Not stated"))}</td>
+        <td data-label="Suggested start">${esc(suggestedStart(row, event))}</td>
+      </tr>`;
       }).join("")}
     </tbody></table>${outlined ? `<p class="meta">Where the drive is not known, the suggested start is counted from the ${esc(depart)} departure. A strenuous hike, or one published at 4 hours or more, starts 30 minutes earlier. An easy hike under 90 minutes starts 30 minutes later. The next hike follows the published duration, plus 15, 20, or 30 minutes by difficulty. The drive is not included.</p>` : ""}` : `<p class="lede">Approve an activity in Select Trails. The drive can still be estimated without one.</p>`}
   </section>`;
@@ -1272,7 +1294,7 @@ function weatherHtml() {
       }).join("")}
     </div>
     <p class="weather-ticker">${esc(alertLine)}</p>
-    <p class="lede">${trouble.length ? `Route context uses only reported figures: ${esc(trouble.join("; "))}.` : "No day in this window has precipitation of 0.25 in or more, wind of 25 mph or more, or a high at or below 32°F. A missing figure is not treated as clear."}</p>
+    <p class="lede">${trouble.length ? `The route note uses only numbers that were reported: ${esc(trouble.join("; "))}.` : "No day in this window has precipitation of 0.25 in or more, wind of 25 mph or more, or a high at or below 32°F. If a number is missing, we don't treat that day as clear."}</p>
     <p class="source">${esc(weather.source)} · ${esc(fresh(weather.retrievedAt))}${weather.timezone ? ` · ${esc(weather.timezone)}` : ""}</p>
   </section>`;
 }
@@ -1498,6 +1520,8 @@ async function openSavedTrip(id) {
   state.stage = "plan";
   state.stageJustChanged = true;
   state.mobile = "list";
+  fitted = "";
+  lastFocus = "";
   if (samePark) {
     const valid = new Set((state.detail.trails || []).map((trail) => trail.id));
     state.selected = state.selected.filter((item) => valid.has(item.id));
@@ -1532,7 +1556,7 @@ function savedTripsHtml() {
       ${state.copyNotice ? `<p class="meta" role="status">${esc(state.copyNotice)}</p>` : ""}
       ${state.emailDraft ? `<label class="email-draft">Email text<textarea id="email-draft" readonly>${esc(state.emailDraft)}</textarea></label>` : ""}
     </div>` : "";
-  return `<section class="card" id="saved-trips"><h2>Save Trips</h2><p class="lede">Open a saved trip to return to Itinerary with its settings. Export it as a PDF, or copy it as a templated email.</p>${list}${note}</section>`;
+  return `<section class="card" id="saved-trips"><h2>Saved Trips</h2><p class="lede">Open a saved trip to return to Itinerary with its settings. Export it as a PDF, or copy it as a templated email.</p>${list}${note}</section>`;
 }
 
 function snapshotPlain(html) {
@@ -1937,7 +1961,7 @@ const STAGES = [
   { id: "park", label: "Discovery", icon: "discovery" },
   { id: "trails", label: "Select Trails", icon: "trails" },
   { id: "plan", label: "Itinerary", icon: "itinerary" },
-  { id: "saved", label: "Save Trips", icon: "saved" },
+  { id: "saved", label: "Saved Trips", icon: "saved" },
 ];
 
 function stageIcon(name) {
@@ -1950,16 +1974,21 @@ function stageIcon(name) {
   return `<svg class="step-glyph" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || ""}</svg>`;
 }
 
+function itineraryCount() {
+  return state.selected.length + state.tripAirports.length + selectedStayNames().length + (state.stateFilter ? 1 : 0);
+}
+
 function itineraryReady() {
-  return Boolean(state.detail) && (state.selected.length > 0 || hasBase() || state.tripAirports.length > 0);
+  return itineraryCount() > 0;
 }
 
 function paneMode() {
-  if (state.stage === "saved" || !state.detail) return "off";
+  if (state.stage === "saved") return "off";
   if (state.stage === "park" || state.stage === "trails") {
-    if (state.parkMap) return "map";
+    if (state.parkMap && state.detail) return "map";
     return itineraryReady() && state.itineraryOpen ? "itinerary" : "off";
   }
+  if (!state.detail) return "off";
   return "map";
 }
 
@@ -1998,10 +2027,9 @@ function adventureHtml() {
   const currentIndex = Math.max(0, STAGES.findIndex((stage) => stage.id === state.stage));
   const currentLabel = STAGES[currentIndex]?.label || "Discovery";
   return `<div class="nav-brand"><img class="nav-mark" src="/nps-arrowhead.png" alt="National Park Service arrowhead" /><span class="nav-brand-label">Park<span>Pilot</span></span></div>
-    <p class="nav-kicker">Modules</p>
+    <p class="nav-subtitle">Your National Park Planning Partner</p>
     <button id="adventure-toggle" class="nav-collapse" type="button" data-action="toggle-adventure" aria-expanded="${open}" aria-label="${open ? "Collapse panel" : "Expand panel"}">
       <span class="nav-collapse-icon" aria-hidden="true"></span>
-      <span class="nav-collapse-label">Collapse panel</span>
     </button>
     <p class="nav-now">Now: ${esc(currentLabel)}</p>
     <ol class="adventure-steps">
@@ -2061,6 +2089,29 @@ function tripSummary() {
   return `${range} · ${count} ${unit}`;
 }
 
+function parkNameSuggestions() {
+  const term = state.query.trim().toLowerCase();
+  if (!term || state.parksStatus !== "ok") return [];
+  if (focusedSearchPark()) return [];
+  return state.parks.filter((park) => park.name.toLowerCase().includes(term)).slice(0, 8);
+}
+
+function focusedSearchPark() {
+  const term = state.query.trim().toLowerCase();
+  if (!term || state.parksStatus !== "ok") return null;
+  const matches = state.parks.filter((park) => park.name.toLowerCase() === term);
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function syncSearchPark() {
+  const park = focusedSearchPark();
+  if (!park) return;
+  const states = String(park.states || "").split(",").map((code) => code.trim()).filter(Boolean);
+  if (states.length && !states.includes(state.stateFilter)) state.stateFilter = states[0];
+  const available = new Set(park.activities || []);
+  state.activityFilter = state.activityFilter.filter((name) => available.has(name));
+}
+
 function optionalFilters() {
   const chips = [];
   if (state.stateFilter) chips.push({ kind: "state", value: state.stateFilter, label: state.stateFilter });
@@ -2071,32 +2122,39 @@ function optionalFilters() {
 
 function filterBarHtml() {
   if (state.parksStatus !== "ok") return "";
-  const states = [...new Set(state.parks.flatMap((park) => park.states.split(",").filter(Boolean)))].sort();
+  const states = [...new Set(state.parks.flatMap((park) => String(park.states || "").split(",").map((code) => code.trim()).filter(Boolean)))].sort();
   const locationTerm = state.locationQuery.trim().toLowerCase();
   const locationChoices = states.filter((code) => code.toLowerCase().includes(locationTerm));
-  const activities = [...new Set(state.parks.flatMap((park) => park.activities))].sort();
+  const focused = focusedSearchPark();
+  const activities = [...new Set((focused ? focused.activities || [] : state.parks.flatMap((park) => park.activities || [])))].sort();
   const activityTerm = state.activityQuery.trim().toLowerCase();
   const activityChoices = activities.filter((name) => name.toLowerCase().includes(activityTerm));
+  const activityNote = focused
+    ? `These are the activities listed for ${focused.name}.`
+    : "A park stays listed when it includes every activity you check.";
   const activityLabel = state.activityFilter.length === 0 ? "Any activity" : state.activityFilter.length === 1 ? state.activityFilter[0] : `${state.activityFilter.length} activities`;
   const levels = [["easy", "Easy"], ["moderate", "Moderate"], ["strenuous", "Strenuous"]];
   const pickedLevels = selectedLevels(state.difficulty);
   const chips = optionalFilters();
   const days = Math.min(10, Math.max(1, Number(state.dayCount) || 1));
-  return `<div class="filter-bar card">
+  return `<details class="filter-bar card topline-settings" ${state.openDetails.topline === false ? "" : "open"} data-keep="topline" aria-label="Criteria">
+    <summary><span class="topline-label">Criteria</span><span class="topline-summary">${esc(tripSummary())}</span></summary>
     <div class="trip-toolbar">
-      <label class="trip-field">Search Parks <input id="query" value="${esc(state.query)}" placeholder="Zion, Utah, Acadia" /></label>
-      <div class="trip-field">
-        <label for="startDate">Trip Start</label>
+      <label class="trip-field park-search">Search Parks
+        <input id="query" value="${esc(state.query)}" placeholder="Zion, Acadia, Yosemite" autocomplete="off" role="combobox" aria-expanded="${parkNameSuggestions().length ? "true" : "false"}" aria-controls="park-suggestions" aria-autocomplete="list" />
+        ${parkNameSuggestions().length ? `<ul id="park-suggestions" class="park-suggestions" role="listbox">${parkNameSuggestions().map((park) => `<li role="presentation"><button type="button" role="option" data-action="suggest-park" data-id="${esc(park.code)}">${esc(park.name)}</button></li>`).join("")}</ul>` : ""}
+      </label>
+      <label class="trip-field trip-date">Trip Start
         <span class="date-control">
-          <button class="date-face" type="button" data-action="open-calendar">${esc(readableDate(state.startDate))}</button>
-          <input id="startDate" type="date" value="${esc(state.startDate)}" aria-label="Trip Start" />
+          <span class="date-face"><span>${esc(readableDate(state.startDate))}</span></span>
+          <input id="tripStart" type="date" data-date="start" value="${esc(state.startDate)}" aria-label="Trip Start" />
         </span>
-      </div>
+      </label>
       <div class="trip-field">
         <label for="dayCount">Duration</label>
         <div class="stepper">
           <button type="button" data-action="duration-step" data-step="-1" aria-label="Fewer days" ${days <= 1 ? "disabled" : ""}>−</button>
-          <input id="dayCount" type="number" min="1" max="10" inputmode="numeric" value="${esc(days)}" aria-describedby="trip-summary" />
+          <input id="dayCount" type="text" inputmode="numeric" enterkeyhint="done" autocomplete="off" value="${esc(shownNumber("dayCount", days))}" aria-describedby="trip-summary" />
           <span class="stepper-unit">days</span>
           <button type="button" data-action="duration-step" data-step="1" aria-label="More days" ${days >= 10 ? "disabled" : ""}>+</button>
         </div>
@@ -2106,6 +2164,7 @@ function filterBarHtml() {
         <details class="activity-menu" ${state.openDetails.location ? "open" : ""} data-keep="location">
           <summary>${esc(state.stateFilter || "All states")}</summary>
           <div class="activity-options">
+            <div class="menu-bar"><span>Location</span><button class="menu-close" type="button" data-action="close-menu" data-menu="location" aria-label="Close location">×</button></div>
             <input id="locationQuery" value="${esc(state.locationQuery)}" placeholder="Find a state" aria-label="Find a state" />
             <p class="meta">A park stays listed when it is in the state you choose.</p>
             <label class="check"><input type="radio" name="stateChoice" value="" ${state.stateFilter === "" ? "checked" : ""} /> All states</label>
@@ -2118,8 +2177,9 @@ function filterBarHtml() {
         <details class="activity-menu" ${state.openDetails.activities ? "open" : ""} data-keep="activities">
           <summary>${esc(activityLabel)}</summary>
           <div class="activity-options">
+            <div class="menu-bar"><span>Activity</span><button class="menu-close" type="button" data-action="close-menu" data-menu="activities" aria-label="Close activity">×</button></div>
             <input id="activityQuery" value="${esc(state.activityQuery)}" placeholder="Find an activity" aria-label="Find an activity" />
-            <p class="meta">A park stays listed when it includes every activity you check.</p>
+            <p class="meta">${esc(activityNote)}</p>
             ${activityChoices.map((name) => `<label class="check"><input type="checkbox" data-activity="${esc(name)}" ${state.activityFilter.includes(name) ? "checked" : ""} /> ${esc(name)}</label>`).join("") || `<p class="meta">No activity matches that search.</p>`}
           </div>
         </details>
@@ -2129,6 +2189,7 @@ function filterBarHtml() {
         <details class="activity-menu" ${state.openDetails.difficulty ? "open" : ""} data-keep="difficulty">
           <summary>${esc(difficultyLabel())}</summary>
           <div class="activity-options">
+            <div class="menu-bar"><span>Hiking Preference</span><button class="menu-close" type="button" data-action="close-menu" data-menu="difficulty" aria-label="Close hiking preference">×</button></div>
             <p class="meta">A park stays listed when it has a schedulable hike at any level you check. Until that level is known, the park stays listed.</p>
             ${levels.map(([value, label]) => `<label class="check"><input id="level-${value}" type="checkbox" data-level="${value}" ${pickedLevels.includes(value) ? "checked" : ""} /> <span class="badge ${value}">${esc(label)}</span></label>`).join("")}
           </div>
@@ -2137,13 +2198,13 @@ function filterBarHtml() {
     </div>
     <div class="trip-toolbar trip-limits">
       <label class="trip-field">Group Size
-        <input id="groupSize" type="number" min="1" max="12" value="${esc(state.groupSize)}" />
+        <input id="groupSize" type="text" inputmode="numeric" enterkeyhint="done" autocomplete="off" value="${esc(shownNumber("groupSize", state.groupSize))}" />
       </label>
       <label class="trip-field">Max drive to the park, miles
-        <input id="maxStayMiles" type="number" min="5" max="400" step="5" value="${esc(state.maxStayMiles)}" />
+        <input id="maxStayMiles" type="text" inputmode="numeric" enterkeyhint="done" autocomplete="off" value="${esc(shownNumber("maxStayMiles", state.maxStayMiles))}" />
       </label>
       <label class="trip-field">Max daily driving, hours
-        <input id="maxDailyDrive" type="number" min="0.5" max="12" step="0.5" value="${esc((Number(state.maxDailyDriveMin) || 180) / 60)}" />
+        <input id="maxDailyDrive" type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off" value="${esc(shownNumber("maxDailyDrive", (Number(state.maxDailyDriveMin) || 180) / 60))}" />
       </label>
     </div>
     <div class="trip-summary-row">
@@ -2153,7 +2214,7 @@ function filterBarHtml() {
     ${chips.length ? `<div class="filter-chips">
       ${chips.map((chip) => `<button class="filter-chip" type="button" data-action="remove-filter" data-kind="${esc(chip.kind)}" data-value="${esc(chip.value)}" aria-label="Remove ${esc(chip.label)}">${esc(chip.label)} <span aria-hidden="true">×</span></button>`).join("")}
     </div>` : ""}
-  </div>`;
+  </details>`;
 }
 
 function needsParkHtml() {
@@ -2302,6 +2363,7 @@ function paint() {
 }
 
 function paintNow() {
+  syncSearchPark();
   const active = document.activeElement;
   const id = active?.id;
   const caret = active?.selectionStart;
@@ -2310,11 +2372,11 @@ function paintNow() {
   const intro = document.querySelector(".intro");
   if (intro) {
     const copy = {
-      park: ["Discovery.", "Open a park for a short overview, then choose trails. A missing figure stays blank."],
-      trails: ["Select Trails.", "Add hikes to the days you have. Missing distance or time stays unavailable."],
-      plan: ["Itinerary.", "The drive, the stay, and the weather use the same dates."],
-      saved: ["Save Trips.", "Open a saved trip to return to Itinerary with its settings."],
-    }[state.stage] || ["Discovery.", "A missing figure stays blank."];
+      park: ["Discovery.", "Design your own adventure."],
+      trails: ["Select Trails.", "Review the trails with the elements in mind."],
+      plan: ["Itinerary.", "Your trip is summarized here."],
+      saved: ["Saved Trips.", "Open a saved trip to return to Itinerary with its settings."],
+    }[state.stage] || ["Discovery.", "Details Unavailable."];
     intro.innerHTML = `<h1>${copy[0]}</h1><p>${copy[1]}</p>`;
   }
   restoreMapHome();
@@ -2330,9 +2392,10 @@ function paintNow() {
   if (itinerary) itinerary.innerHTML = itineraryPaneHtml();
   const toggle = document.getElementById("itinerary-toggle");
   if (toggle) {
-    const count = state.selected.length + state.tripAirports.length;
+    const count = itineraryCount();
     toggle.hidden = !(["park", "trails"].includes(state.stage) && itineraryReady() && !state.itineraryOpen);
     toggle.setAttribute("aria-expanded", String(Boolean(state.itineraryOpen)));
+    toggle.setAttribute("aria-label", count ? `Itinerary, ${count}` : "Itinerary");
     const countNode = toggle.querySelector(".itinerary-arrow-count");
     if (countNode) countNode.textContent = String(count);
   }
@@ -2364,6 +2427,11 @@ function paintNow() {
   }
   const hideMap = document.getElementById("hide-park-map");
   if (hideMap) hideMap.hidden = !(["park", "trails"].includes(state.stage) && state.parkMap);
+  if (state.scrollToListing) {
+    const listing = state.scrollToListing;
+    state.scrollToListing = "";
+    document.querySelector(`[data-listing="${CSS.escape(listing)}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
   if (state.scrollToPreview) {
     state.scrollToPreview = false;
     document.querySelector(".trail-detail")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -2547,14 +2615,26 @@ function syncMap() {
   selectedTrails().forEach((trail, index) => add(trail.lat, trail.lon, "hike", String(index + 1), trail.id));
   const preview = state.detail?.trails?.find((trail) => trail.id === state.previewId);
   if (preview) add(preview.lat, preview.lon, "hike", "•", preview.id);
-  const key = `${state.parkCode}|${state.origin?.label || ""}|${geometry.length}|${state.selected.map((item) => item.id).join(",")}|${state.previewId}|${state.focusId}|${Object.values(activeNightPlaces()).map((place) => place.id).join(",")}`;
-  if (stayFrame && state.focusId !== lastFocus) {
-    map.fitBounds(stayFrame, { padding: [48, 48], maxZoom: 11 });
-    lastFocus = state.focusId;
+  for (const airport of state.tripAirports) {
+    const lat = Number(airport.lat);
+    const lon = Number(airport.lon);
+    if (Number.isFinite(lat) && Number.isFinite(lon)) bounds.push([lat, lon]);
+  }
+  const routeLines = geometry.length && Array.isArray(geometry[0]?.[0]) ? geometry : geometry.length ? [geometry] : [];
+  for (const line of routeLines) bounds.push(...line);
+  const key = `${state.parkCode}|${state.origin?.label || ""}|${geometry.length}|${state.selected.map((item) => item.id).join(",")}|${state.previewId}|${state.focusId}|${Object.values(activeNightPlaces()).map((place) => place.id).join(",")}|${state.tripAirports.map((airport) => airport.iata).join(",")}`;
+  const frame = stayFrame && state.focusId !== lastFocus ? stayFrame : key !== fitted && bounds.length ? bounds : null;
+  if (stayFrame && state.focusId !== lastFocus) lastFocus = state.focusId;
+  if (frame) {
     fitted = key;
-  } else if (key !== fitted && bounds.length) {
-    map.fitBounds(bounds, { padding: [28, 28], maxZoom: 12 });
-    fitted = key;
+    const narrow = window.matchMedia("(max-width: 720px)").matches;
+    const options = stayFrame && frame === stayFrame
+      ? { padding: narrow ? [24, 24] : [48, 48], maxZoom: narrow ? 10 : 11 }
+      : { padding: narrow ? [16, 16] : [28, 28], maxZoom: narrow ? 9 : 12 };
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      map.invalidateSize();
+      map.fitBounds(frame, options);
+    }));
   }
   if (!stayFrame && state.focusId && state.focusId !== lastFocus) {
     lastFocus = state.focusId;
@@ -3195,7 +3275,50 @@ function handleLodgingAction(action, button) {
   return false;
 }
 
+function parkStateCodes(code) {
+  const park = state.parks.find((item) => item.code === code);
+  return String(park?.states || "").split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function dismissFilterMenu(event) {
+  const menus = ["location", "activities", "difficulty"];
+  const host = event.target.closest?.(".activity-menu");
+  if (host) {
+    const onPanel = event.target.closest(".activity-options");
+    const onSummary = event.target.closest("summary");
+    if (host.open && !onPanel && !onSummary) {
+      state.openDetails[host.dataset.keep] = false;
+      paint();
+      return true;
+    }
+    return false;
+  }
+  const open = menus.find((name) => state.openDetails[name]);
+  if (!open) return false;
+  state.openDetails[open] = false;
+  paint();
+  return true;
+}
+
 function onClick(event) {
+  const suggestion = event.target.closest?.("[data-action='suggest-park']");
+  if (suggestion) {
+    const match = state.parks.find((item) => item.code === suggestion.dataset.id);
+    if (match) state.query = match.name;
+    state.openDetails.location = false;
+    state.openDetails.activities = false;
+    state.openDetails.difficulty = false;
+    paint();
+    return;
+  }
+  if (dismissFilterMenu(event)) return;
+  const dateCard = event.target.closest?.(".trip-date");
+  if (dateCard && event.target?.id !== "tripStart") {
+    const input = dateCard.querySelector("#tripStart");
+    if (typeof input?.showPicker === "function") {
+      try { input.showPicker(); } catch { input.focus(); }
+    }
+  }
   const park = event.target.closest("[data-park]");
   if (park) {
     if (park.dataset.park !== state.parkCode) {
@@ -3216,6 +3339,9 @@ function onClick(event) {
       state.townProfiles = {};
       state.openDetails["park-stay"] = false;
     }
+    const states = parkStateCodes(park.dataset.park);
+    if (states.length && !states.includes(state.stateFilter)) state.stateFilter = states[0];
+    state.openDetails.topline = false;
     loadPark(park.dataset.park);
     state.stage = "park";
     state.parkOpen = true;
@@ -3247,6 +3373,11 @@ function onClick(event) {
   }
   if (action === "close-park") {
     state.parkOpen = false;
+    paint();
+    return;
+  }
+  if (action === "close-menu") {
+    state.openDetails[button.dataset.menu] = false;
     paint();
     return;
   }
@@ -3285,6 +3416,15 @@ function onClick(event) {
         : [...state.tripAirports, { iata, name: airport.name, label: airport.label || `${airport.name} (${iata})`, lat: airport.lat, lon: airport.lon }];
     }
   }
+  if (action === "show-listing") {
+    const trail = (state.detail?.trails || []).find((item) => item.id === id);
+    const listed = recommendedHikes(state.detail?.trails || [], state.difficulty);
+    const approved = state.selected.some((item) => item.id === id);
+    if (trail && !approved && !listed.some((item) => item.id === id)) state.showOthers = true;
+    state.scrollToListing = id;
+    paint();
+    return;
+  }
   if (action === "apply-suggestion" && state.suggestion?.parkCode === state.parkCode) {
     const dates = tripDates();
     for (const day of state.suggestion.days || []) {
@@ -3313,6 +3453,7 @@ function onClick(event) {
     if (button.dataset.kind === "level") state.difficulty = selectedLevels(state.difficulty).filter((level) => level !== button.dataset.value);
   }
   if (action === "duration-step") {
+    delete numberDrafts.dayCount;
     const current = Math.min(10, Math.max(1, Number(state.dayCount) || 1));
     const next = Math.min(10, Math.max(1, current + Number(button.dataset.step || 0)));
     if (next !== current) {
@@ -3346,9 +3487,10 @@ function onClick(event) {
     return;
   }
   if (action === "open-calendar") {
-    const input = document.getElementById("startDate");
-    if (typeof input?.showPicker === "function") input.showPicker();
-    else input?.focus();
+    const input = document.getElementById("tripStart");
+    if (typeof input?.showPicker === "function") {
+      try { input.showPicker(); } catch { input.focus(); }
+    } else input?.focus();
     return;
   }
   if (action === "toggle-edit-nights") {
@@ -3408,6 +3550,7 @@ function onClick(event) {
   if (action === "clear-itinerary") {
     state.selected = [];
     state.tripAirports = [];
+    state.stateFilter = "";
     state.lodgingNights = {};
     state.proposal = null;
     state.suggestion = null;
@@ -3476,6 +3619,52 @@ function onClick(event) {
   paint();
 }
 
+const NUMBER_FIELDS = new Set(["dayCount", "groupSize", "maxStayMiles", "maxDailyDrive"]);
+const numberDrafts = {};
+
+function shownNumber(id, committed) {
+  return Object.prototype.hasOwnProperty.call(numberDrafts, id) ? numberDrafts[id] : committed;
+}
+
+function commitNumberField(field) {
+  const id = field?.id;
+  if (!NUMBER_FIELDS.has(id)) return;
+  const raw = Object.prototype.hasOwnProperty.call(numberDrafts, id) ? numberDrafts[id] : field.value;
+  delete numberDrafts[id];
+  applyNumberDraft(id, raw);
+  const next = field.ownerDocument?.activeElement;
+  if (NUMBER_FIELDS.has(next?.id)) return;
+  paint();
+}
+
+function applyNumberDraft(id, raw) {
+  const text = String(raw ?? "").trim();
+  const value = Number(text);
+  if (text === "" || !Number.isFinite(value)) return;
+  if (id === "dayCount") {
+    const next = Math.min(10, Math.max(1, Math.round(value)));
+    if (Number(state.dayCount) === next) return;
+    state.dayCount = next;
+    forgetSuggestion();
+    syncNightWindow();
+    touchWeather();
+    touchPlan();
+    return;
+  }
+  if (id === "groupSize") {
+    state.groupSize = Math.min(12, Math.max(1, Math.round(value)));
+    return;
+  }
+  if (id === "maxStayMiles") {
+    state.maxStayMiles = Math.min(400, Math.max(5, Math.round(value)));
+    return;
+  }
+  if (id === "maxDailyDrive") {
+    const hours = Math.min(12, Math.max(0.5, value));
+    state.maxDailyDriveMin = Math.round(hours * 60);
+  }
+}
+
 function onInput(event) {
   const field = event.target;
   if (field.closest?.("#pack-dialog")) return;
@@ -3489,17 +3678,11 @@ function onInput(event) {
     state.priceTouched = true;
   }
   if (field.id === "bufferMin") state.bufferMin = field.value;
-  if (field.id === "groupSize") state.groupSize = field.value;
-  if (field.id === "dayCount") state.dayCount = field.value;
+  if (NUMBER_FIELDS.has(field.id)) {
+    numberDrafts[field.id] = field.value;
+    return;
+  }
   if (field.id === "lodgingQuery") state.lodgingQuery = field.value;
-  if (field.id === "maxStayMiles") {
-    const miles = Number(field.value);
-    if (miles > 0) state.maxStayMiles = miles;
-  }
-  if (field.id === "maxDailyDrive") {
-    const hours = Number(field.value);
-    if (hours > 0) state.maxDailyDriveMin = Math.round(hours * 60);
-  }
   const packText = field.dataset.packText;
   if (packText) {
     const item = state.packing.find((entry) => entry.id === packText);
@@ -3508,13 +3691,7 @@ function onInput(event) {
       item.edited = true;
     }
   }
-  if (["query", "activityQuery", "locationQuery", "originQuery", "mpg", "price", "bufferMin", "groupSize", "dayCount", "lodgingQuery", "maxDailyDrive", "maxStayMiles"].includes(field.id) || packText) paint();
-  if (field.id === "dayCount") {
-    forgetSuggestion();
-    syncNightWindow();
-    touchWeather();
-    touchPlan();
-  }
+  if (["query", "activityQuery", "locationQuery", "originQuery", "mpg", "price", "bufferMin", "lodgingQuery"].includes(field.id) || packText) paint();
 }
 
 function onChange(event) {
@@ -3540,7 +3717,12 @@ function onChange(event) {
   if (field.id === "landingTime") state.landingTime = field.value;
   if (field.id === "departTime") state.departTime = field.value;
   if (field.id === "returnBy") state.returnBy = field.value;
-  if (field.id === "startDate") {
+  if (NUMBER_FIELDS.has(field.id)) {
+    commitNumberField(field);
+    return;
+  }
+  if (field.dataset.date === "start") {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(field.value)) return;
     state.startDate = field.value;
     forgetSuggestion();
     syncNightWindow();
@@ -3581,8 +3763,8 @@ function boot() {
     <aside id="adventure" class="app-nav" aria-label="Trip modules"></aside>
     <div class="app-main">
       <section class="intro wrap">
-        <h1>Choose your adventure.</h1>
-        <p>Pick the park and the activities, carry the stay into the drive, then read the days against the weather. A missing figure stays blank.</p>
+        <h1>Discovery.</h1>
+        <p>Design your own adventure.</p>
       </section>
       <div class="workspace wrap">
         <div id="sheet" class="sheet"></div>
@@ -3638,6 +3820,18 @@ function boot() {
   }, true);
   document.getElementById("sheet").addEventListener("input", onInput);
   document.getElementById("sheet").addEventListener("change", onChange);
+  document.getElementById("sheet").addEventListener("focusin", (event) => {
+    const field = event.target;
+    if (!NUMBER_FIELDS.has(field?.id)) return;
+    numberDrafts[field.id] = field.value;
+    setTimeout(() => {
+      if (document.activeElement === field) field.select?.();
+    }, 0);
+  });
+  document.getElementById("sheet").addEventListener("focusout", (event) => {
+    if (!NUMBER_FIELDS.has(event.target?.id)) return;
+    commitNumberField(event.target);
+  });
   document.getElementById("mobile-list").addEventListener("click", () => { state.mobile = "list"; paint(); });
   document.getElementById("mobile-map").addEventListener("click", () => { state.mobile = "map"; paint(); });
   document.addEventListener("keydown", (event) => {

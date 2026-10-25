@@ -10,6 +10,8 @@ test("a park matches every selected choice", () => {
   assert.equal(parkMatches(zion, choices, ["moderate"]), false);
   assert.equal(parkMatches(zion, { ...choices, stateFilter: "NV" }, ["easy"]), false);
   assert.equal(parkMatches(zion, { ...choices, activityFilter: ["Hiking", "Fishing"] }, ["easy"]), false);
+  assert.equal(parkMatches(zion, { query: "utah" }, ["easy"]), false);
+  assert.equal(parkMatches(zion, { query: "ut" }, ["easy"]), false);
 });
 
 test("an unknown hike level does not hide a park", () => {
